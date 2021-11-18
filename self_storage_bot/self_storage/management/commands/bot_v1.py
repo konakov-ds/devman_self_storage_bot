@@ -8,18 +8,19 @@ from django.core.files import File
 from telegram import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, Update, user
 from telegram.ext import ConversationHandler, MessageHandler, CommandHandler, Updater, Filters, CallbackContext
 from dotenv import load_dotenv
+import qrcode
+import time
 
 load_dotenv()
 token = os.getenv('TELEGRAM_TOKEN')
 
 
-users_info = defaultdict()
 storage_info = defaultdict()
 
 ADDRESSES = ['⚓️ Адрес 1', '⚓️ Адрес 2', '⚓️ Адрес 3', '⚓️ Адрес 4']
 STORAGE_PERIODS = [
     '1 месяц',
-    '1 месяца',
+    '2 месяца',
     '3 месяца',
     '6 месяцев',
     '12 месяцев',
@@ -27,6 +28,7 @@ STORAGE_PERIODS = [
     'Главное меню'
 ]
 
+CHECKOUT_URL = 'https://www.tinkoff.ru/kassa/solution/qr/'
 
 ADDRESSES_KEYBOARD = ReplyKeyboardMarkup(
     keyboard = [
@@ -162,6 +164,159 @@ def select_storage_period(update, context):
         return start(update, context)
 
 
+def get_user_data_from_db():
+    return False
+
+
+def is_valid_fio(fio):
+    return True
+
+
+def is_valid_phone(phone):
+    return True
+
+
+def is_valid_passport(passport):
+    return True
+
+
+def is_valid_birth_date(birth_date):
+    return True
+
+
+def get_qr_code(chat_id):
+    img = qrcode.make(chat_id)
+    img.save(f'{chat_id}.png')
+    return f'{chat_id}.png'
+
+
+def get_user_fio_from_bot(update, context):
+    user_info = get_user_data_from_db()
+    if not user_info:
+        message = update.message
+        context.bot.send_message(
+            chat_id=message.chat_id,
+            text='Пожалуйста, введите ваше ФИО, например - Иванов Иван Иванович',
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return 8
+
+
+def get_user_phone_from_bot(update, context):
+    message = update.message
+    fio = message.text
+    if is_valid_fio(fio):
+        context.bot.send_message(
+            chat_id=message.chat_id,
+            text='Пожалуйста, введите ваш номер телефона в формате: 79260000000',
+            reply_markup=ReplyKeyboardRemove()
+        )
+        storage_info[message.chat_id]['fio'] = fio
+        return 9
+    else:
+        context.bot.send_message(
+            chat_id=message.chat_id,
+            text='ФИО введено некорректно! Введите ФИО еще раз, например - Иванов Иван Иванович',
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return 8
+
+
+def get_user_passport_from_bot(update, context):
+    message = update.message
+    phone = message.text
+    if is_valid_phone(phone):
+        context.bot.send_message(
+            chat_id=message.chat_id,
+            text='Пожалуйста, введите ваши пасспортные данные в формаете СЕРИЯ НОМЕР\n'
+                 'Например: 8805 777666',
+            reply_markup=ReplyKeyboardRemove()
+        )
+        storage_info[message.chat_id]['phone'] = phone
+        return 10
+    else:
+        context.bot.send_message(
+            chat_id=message.chat_id,
+            text='Номер введен некорректно! Введите в формате: 79260000000 ',
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return 9
+
+
+def get_user_birth_date_from_bot(update, context):
+    message = update.message
+    passport = message.text
+    if is_valid_passport(passport):
+        context.bot.send_message(
+            chat_id=message.chat_id,
+            text='Пожалуйста, введите вашу дату рождения в формете ГОД-МЕСЯЦ-ЧИСЛО\n'
+                 'Например: 1991-08-17',
+            reply_markup=ReplyKeyboardRemove()
+        )
+        storage_info[message.chat_id]['passport'] = passport
+        return 11
+    else:
+        context.bot.send_message(
+            chat_id=message.chat_id,
+            text='Паспортные данные введены некорректно, нужный формат - СЕРИЯ НОМЕР',
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return 10
+
+
+def create_order(update, context):
+    message = update.message
+    birth_date = message.text
+    if is_valid_birth_date(birth_date):
+        storage_info[message.chat_id]['birth_date'] = birth_date
+        context.bot.send_message(
+            chat_id=message.chat_id,
+            text=f'Отлично! Мы получили от вас следующие данные:\n{storage_info[message.chat_id]}',
+            reply_markup=ReplyKeyboardMarkup(
+                    keyboard=[
+                        [
+                            KeyboardButton(text='Оплатить'),
+                            KeyboardButton(text='Главное меню'),
+                        ]
+                    ],
+                    resize_keyboard=True
+            )
+        )
+        return 12
+    else:
+        context.bot.send_message(
+            chat_id=message.chat_id,
+            text='Дата рождения введена некорректно, нужный формат - ГОД-МЕСЯЦ-ЧИСЛО\n'
+                 'Например: 1991-08-17',
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return 11
+
+
+def checkout(update, context):
+    message = update.message
+    choice = message.text
+    if choice == 'Оплатить':
+        context.bot.send_message(
+            chat_id=message.chat_id,
+            text=f'Ссылка на оплату {CHECKOUT_URL}',
+            reply_markup=ReplyKeyboardRemove()
+        )
+        qr_code_path = get_qr_code(message.chat_id)
+        time.sleep(2)
+        with open(qr_code_path, 'rb') as qr:
+            context.bot.send_photo(
+                chat_id=message.chat_id,
+                photo=qr,
+            )
+
+        ConversationHandler.END
+        return start(update, context)
+    else:
+        ConversationHandler.END
+        return start(update, context)
+
+
 def stop(update):
     update.message.reply_text("Стоп")
     return ConversationHandler.END
@@ -175,10 +330,17 @@ order_handler = ConversationHandler(
         4: [MessageHandler(Filters.text, select_storage_cell_size, pass_user_data=True)],
         5: [MessageHandler(Filters.text, select_storage_cell_size, pass_user_data=True)],
         6: [MessageHandler(Filters.text, select_storage_period, pass_user_data=True)],
+        7: [MessageHandler(Filters.text, get_user_fio_from_bot, pass_user_data=True)],
+        8: [MessageHandler(Filters.text, get_user_phone_from_bot, pass_user_data=True)],
+        9: [MessageHandler(Filters.text, get_user_passport_from_bot, pass_user_data=True)],
+        10: [MessageHandler(Filters.text, get_user_birth_date_from_bot, pass_user_data=True)],
+        11: [MessageHandler(Filters.text, create_order, pass_user_data=True)],
+        12: [MessageHandler(Filters.text, checkout, pass_user_data=True)],
     },
 
     fallbacks=[CommandHandler('stop', stop)]
 )
+
 
 class Command(BaseCommand):
 
